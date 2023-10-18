@@ -28,4 +28,8 @@ assert 34 '12-34+56'
 
 assert 41 ' 12 + 34 - 5 '
 
+assert 47 '5+6*7'
+assert 15 '5*(9-6)'
+assert 17 '1-8/(2*2)+3*6'
+
 echo "OK"

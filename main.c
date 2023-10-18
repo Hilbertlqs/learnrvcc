@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -118,7 +119,7 @@ static struct token *tokenize(void)
             continue;
         }
 
-        if (*p == '+' || *p == '-') {
+        if (ispunct(*p)) {
             cur->next = new_token(TK_PUNCT, p, p + 1);
             cur = cur->next;
             ++p;
@@ -133,6 +134,179 @@ static struct token *tokenize(void)
     return head.next;
 }
 
+enum node_kind {
+    ND_ADD,
+    ND_SUB,
+    ND_MUL,
+    ND_DIV,
+    ND_NUM
+};
+
+struct node {
+    enum node_kind kind;
+    struct node *lhs;    // left-hand side
+    struct node *rhs;    // right-hand side
+    int val;
+};
+
+static struct node *new_node(enum node_kind kind)
+{
+    struct node *nd = calloc(1, sizeof(struct node));
+
+    nd->kind = kind;
+
+    return nd;
+}
+
+static struct node *new_binary(enum node_kind kind, struct node *lhs, struct node *rhs)
+{
+    struct node *nd = new_node(kind);
+
+    nd->lhs = lhs;
+    nd->rhs = rhs;
+    
+    return nd;
+}
+
+static struct node *new_num(int val)
+{
+    struct node *nd = new_node(ND_NUM);
+
+    nd->val = val;
+
+    return nd;
+}
+
+static struct node *expr(struct token **rest, struct token *tok);
+static struct node *mul(struct token **rest, struct token *tok);
+static struct node *primary(struct token **rest, struct token *tok);
+
+// expr = mul ("+" mul | "-" mul)*
+static struct node *expr(struct token **rest, struct token *tok)
+{
+    // mul
+    struct node *nd = mul(&tok, tok);
+
+    // ("+" mul | "-" mul)*
+    while (true) /* for (;;) */ {
+        // "+" mul
+        if (equal(tok, "+")) {
+            nd = new_binary(ND_ADD, nd, mul(&tok, tok->next));
+            continue;
+        }
+
+        // "-" mul
+        if (equal(tok, "-")) {
+            nd = new_binary(ND_SUB, nd, mul(&tok, tok->next));
+            continue;
+        }
+
+        *rest = tok;
+
+        return nd;
+    }
+}
+
+// mul = primary ("*" primary | "/" primary)*
+static struct node *mul(struct token **rest, struct token *tok)
+{
+    // primary
+    struct node *nd = primary(&tok, tok);
+
+    // ("*" primary | "/" primary)*
+    while (true) /* for (;;) */ {
+        // "*" primary
+        if (equal(tok, "*")) {
+            nd = new_binary(ND_MUL, nd, primary(&tok, tok->next));
+            continue;
+        }
+
+        // "/" primary
+        if (equal(tok, "/")) {
+            nd = new_binary(ND_DIV, nd, primary(&tok, tok->next));
+            continue;
+        }
+
+        *rest = tok;
+
+        return nd;
+    }
+}
+
+// primary = "(" expr ")" | num
+static struct node *primary(struct token **rest, struct token *tok)
+{
+    // "(" expr ")"
+    if (equal(tok, "(")) {
+        struct node *nd = expr(&tok, tok->next);
+
+        *rest = skip(tok, ")");
+        
+        return nd;
+    }
+
+    // num
+    if (tok->kind == TK_NUM) {
+        struct node *nd = new_num(tok->val);
+
+        *rest = tok->next;
+
+        return nd;
+    }
+
+    error_tok(tok, "expected an expression");
+
+    return NULL;
+}
+
+static int depth;
+
+static void push(void)
+{
+    printf("    addi sp, sp, -8\n");
+    printf("    sd a0, 0(sp)\n");
+    depth++;
+}
+
+static void pop(char *reg)
+{
+    printf("    ld %s, 0(sp)\n", reg);
+    printf("    addi sp, sp, 8\n");
+    depth--;
+}
+
+static void gen_expr(struct node *nd)
+{
+    if (nd->kind == ND_NUM) {
+        printf("    li a0, %d\n", nd->val);
+        return;
+    }
+
+    gen_expr(nd->rhs);
+    push();
+    gen_expr(nd->lhs);
+    pop("a1");
+
+    switch (nd->kind) {
+    case ND_ADD:
+        printf("    add a0, a0, a1\n");
+        return;
+    case ND_SUB:
+        printf("    sub a0, a0, a1\n");
+        return;
+    case ND_MUL:
+        printf("    mul a0, a0, a1\n");
+        return;
+    case ND_DIV:
+        printf("    div a0, a0, a1\n");
+        return;
+    default:
+        break;
+    }
+
+    error("invalid expression");
+}
+
 int main(int argc, char *argv[])
 {
     if (argc != 2)
@@ -141,25 +315,19 @@ int main(int argc, char *argv[])
     current_input = argv[1];
     struct token *tok = tokenize();
 
+    struct node *node = expr(&tok, tok);
+
+    if (tok->kind != TK_EOF)
+        error_tok(tok, "extra token");
+
     printf("    .globl main\n");
     printf("main:\n");
-    printf("    li a0, %d\n", get_number(tok));
-    tok = tok->next;
 
-    while (tok->kind != TK_EOF) {
-        if (equal(tok, "+")) {
-            tok = tok->next;
-            printf("    addi a0, a0, %d\n", get_number(tok));
-            tok = tok->next;
-            continue;
-        }
+    gen_expr(node);
 
-        tok = skip(tok, "-");
-        printf("    addi a0, a0, -%d\n", get_number(tok));
-        tok = tok->next;
-    }
-    
     printf("    ret\n");
+
+    assert(depth == 0);
 
     return 0;
 }
