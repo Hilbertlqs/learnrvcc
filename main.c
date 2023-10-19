@@ -139,6 +139,7 @@ enum node_kind {
     ND_SUB,
     ND_MUL,
     ND_DIV,
+    ND_NEG,
     ND_NUM
 };
 
@@ -154,6 +155,15 @@ static struct node *new_node(enum node_kind kind)
     struct node *nd = calloc(1, sizeof(struct node));
 
     nd->kind = kind;
+
+    return nd;
+}
+
+static struct node *new_unary(enum node_kind kind, struct node *expr)
+{
+    struct node *nd = new_node(kind);
+
+    nd->lhs = expr;
 
     return nd;
 }
@@ -179,6 +189,7 @@ static struct node *new_num(int val)
 
 static struct node *expr(struct token **rest, struct token *tok);
 static struct node *mul(struct token **rest, struct token *tok);
+static struct node *unary(struct token **rest, struct token *tok);
 static struct node *primary(struct token **rest, struct token *tok);
 
 // expr = mul ("+" mul | "-" mul)*
@@ -207,23 +218,23 @@ static struct node *expr(struct token **rest, struct token *tok)
     }
 }
 
-// mul = primary ("*" primary | "/" primary)*
+// mul = unary ("*" unary | "/" unary)*
 static struct node *mul(struct token **rest, struct token *tok)
 {
-    // primary
-    struct node *nd = primary(&tok, tok);
+    // unary
+    struct node *nd = unary(&tok, tok);
 
-    // ("*" primary | "/" primary)*
+    // ("*" unary | "/" unary)*
     while (true) /* for (;;) */ {
-        // "*" primary
+        // "*" unary
         if (equal(tok, "*")) {
-            nd = new_binary(ND_MUL, nd, primary(&tok, tok->next));
+            nd = new_binary(ND_MUL, nd, unary(&tok, tok->next));
             continue;
         }
 
-        // "/" primary
+        // "/" unary
         if (equal(tok, "/")) {
-            nd = new_binary(ND_DIV, nd, primary(&tok, tok->next));
+            nd = new_binary(ND_DIV, nd, unary(&tok, tok->next));
             continue;
         }
 
@@ -231,6 +242,21 @@ static struct node *mul(struct token **rest, struct token *tok)
 
         return nd;
     }
+}
+
+// unary = ("+" | "-") unary | primary
+static struct node *unary(struct token **rest, struct token *tok)
+{
+    // "+" unary
+    if (equal(tok, "+"))
+        return unary(rest, tok->next);
+
+    // "-" unary
+    if (equal(tok, "-"))
+        return new_unary(ND_NEG, unary(rest, tok->next));
+
+    // primary
+    return primary(rest, tok);
 }
 
 // primary = "(" expr ")" | num
@@ -277,9 +303,16 @@ static void pop(char *reg)
 
 static void gen_expr(struct node *nd)
 {
-    if (nd->kind == ND_NUM) {
+    switch (nd->kind) {
+    case ND_NUM:
         printf("    li a0, %d\n", nd->val);
         return;
+    case ND_NEG:
+        gen_expr(nd->lhs);
+        printf("    neg a0, a0\n");
+        return;
+    default:
+        break;
     }
 
     gen_expr(nd->rhs);
