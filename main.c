@@ -98,6 +98,20 @@ static struct token *new_token(enum token_kind kind, char *start, char *end)
     return tok;
 }
 
+static bool startswith(char *p, char *q)
+{
+    return strncmp(p, q, strlen(q)) == 0;
+}
+
+static int read_punct(char *p)
+{
+    if (startswith(p, "==") || startswith(p, "!=") || 
+        startswith(p, "<=") || startswith(p, ">="))
+        return 2;
+
+    return ispunct(*p) ? 1 : 0;
+}
+
 static struct token *tokenize(void)
 {
     char *p = current_input;
@@ -119,10 +133,11 @@ static struct token *tokenize(void)
             continue;
         }
 
-        if (ispunct(*p)) {
-            cur->next = new_token(TK_PUNCT, p, p + 1);
+        int punct_len = read_punct(p);
+        if (punct_len) {
+            cur->next = new_token(TK_PUNCT, p, p + punct_len);
             cur = cur->next;
-            ++p;
+            p += punct_len;
             continue;
         }
 
@@ -140,6 +155,10 @@ enum node_kind {
     ND_MUL,
     ND_DIV,
     ND_NEG,
+    ND_EQ,
+    ND_NE,
+    ND_LT,
+    ND_LE,
     ND_NUM
 };
 
@@ -188,12 +207,85 @@ static struct node *new_num(int val)
 }
 
 static struct node *expr(struct token **rest, struct token *tok);
+static struct node *equality(struct token **rest, struct token *tok);
+static struct node *relational(struct token **rest, struct token *tok);
+static struct node *add(struct token **rest, struct token *tok);
 static struct node *mul(struct token **rest, struct token *tok);
 static struct node *unary(struct token **rest, struct token *tok);
 static struct node *primary(struct token **rest, struct token *tok);
 
-// expr = mul ("+" mul | "-" mul)*
+// expr = equality
 static struct node *expr(struct token **rest, struct token *tok)
+{
+    return equality(rest, tok);
+}
+
+// equality = relational ("==" relational | "!=" relational)*
+static struct node *equality(struct token **rest, struct token *tok)
+{
+    // relational
+    struct node *nd = relational(&tok, tok);
+
+    // ("==" relational | "!=" relational)*
+    while (true) /* for (;;) */ {
+        // "==" relational
+        if (equal(tok, "==")) {
+            nd = new_binary(ND_EQ, nd, relational(&tok, tok->next));
+            continue;
+        }
+
+        // "!=" relational
+        if (equal(tok, "!=")) {
+            nd = new_binary(ND_NE, nd, relational(&tok, tok->next));
+            continue;
+        }
+
+        *rest = tok;
+
+        return nd;
+    }
+}
+
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+static struct node *relational(struct token **rest, struct token *tok)
+{
+    // add
+    struct node *nd = add(&tok, tok);
+
+    // ("<" add | "<=" add | ">" add | ">=" add)*
+    while (true) /* for (;;) */ {
+        // "<" add
+        if (equal(tok, "<")) {
+            nd = new_binary(ND_LT, nd, add(&tok, tok->next));
+            continue;
+        }
+
+        // "<=" add
+        if (equal(tok, "<=")) {
+            nd = new_binary(ND_LE, nd, add(&tok, tok->next));
+            continue;
+        }
+
+        // ">" add
+        if (equal(tok, ">")) {
+            nd = new_binary(ND_LT, add(&tok, tok->next), nd);
+            continue;
+        }
+
+        // ">=" add
+        if (equal(tok, ">=")) {
+            nd = new_binary(ND_LE, add(&tok, tok->next), nd);
+            continue;
+        }
+
+        *rest = tok;
+
+        return nd;
+    }
+}
+
+// add = mul ("+" mul | "-" mul)*
+static struct node *add(struct token **rest, struct token *tok)
 {
     // mul
     struct node *nd = mul(&tok, tok);
@@ -305,9 +397,11 @@ static void gen_expr(struct node *nd)
 {
     switch (nd->kind) {
     case ND_NUM:
+        // li rd, immediate: RV32I: lui and/or addi; RV64I: lui, addi, slli, addi, slli, addi, slli, addi
         printf("    li a0, %d\n", nd->val);
         return;
     case ND_NEG:
+        // neg rd, rs: sub rd, x0, rs
         gen_expr(nd->lhs);
         printf("    neg a0, a0\n");
         return;
@@ -332,6 +426,23 @@ static void gen_expr(struct node *nd)
         return;
     case ND_DIV:
         printf("    div a0, a0, a1\n");
+        return;
+    case ND_EQ:
+    case ND_NE:
+        printf("    xor a0, a0, a1\n");
+        if (nd->kind == ND_EQ)
+            // seqz rd, rs: sltiu rd, rs, 1
+            printf("    seqz a0, a0\n");
+        else
+            // snez rd, rs: sltu rd, x0, rs
+            printf("    snez a0, a0\n");
+        return;
+    case ND_LT:
+        printf("    slt a0, a0, a1\n");
+        return;
+    case ND_LE:
+        printf("    slt a0, a1, a0\n");
+        printf("    xori a0, a0, 1\n");
         return;
     default:
         break;
