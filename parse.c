@@ -1,5 +1,6 @@
 #include "rvcc.h"
 
+static struct node *expr_stmt(struct token **rest, struct token *tok);
 static struct node *expr(struct token **rest, struct token *tok);
 static struct node *equality(struct token **rest, struct token *tok);
 static struct node *relational(struct token **rest, struct token *tok);
@@ -42,6 +43,22 @@ static struct node *new_num(int val)
 
     nd->val = val;
 
+    return nd;
+}
+
+// stmt = expr_stmt
+static struct node *stmt(struct token **rest, struct token *tok)
+{
+    return expr_stmt(rest, tok);
+}
+
+// expr_stmt = expr ";"
+static struct node *expr_stmt(struct token **rest, struct token *tok)
+{
+    struct node *nd = new_unary(ND_EXPR_STMT, expr(&tok, tok));
+
+    *rest = skip(tok, ";");
+    
     return nd;
 }
 
@@ -208,12 +225,17 @@ static struct node *primary(struct token **rest, struct token *tok)
     return NULL;
 }
 
+// program = stmt*
 struct node *parse(struct token *tok)
 {
-    struct node *nd = expr(&tok, tok);
+    struct node head = {};
+    struct node *cur = &head;
 
-    if (tok->kind != TK_EOF)
-        error_tok(tok, "extra token");
+    // stmt*
+    while (tok->kind != TK_EOF) {
+        cur->next = stmt(&tok, tok);
+        cur = cur->next;
+    }
     
-    return nd;
+    return head.next;
 }

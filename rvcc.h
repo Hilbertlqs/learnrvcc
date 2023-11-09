@@ -7,17 +7,17 @@
 #include <string.h>
 
 enum token_kind {
-    TK_PUNCT,
-    TK_NUM,
-    TK_EOF
+    TK_PUNCT, // keywords or punctuators
+    TK_NUM,   // numeric literals
+    TK_EOF    // end-of-file markers
 };
 
 struct token {
-    enum token_kind kind;
-    struct token *next;
-    int val;
-    char *loc;
-    int len;
+    enum token_kind kind; // token kind
+    struct token *next;   // next token
+    int val;              // if kind is TK_NUM, its value
+    char *loc;            // token location
+    int len;              // token length
 };
 
 void error(char *fmt, ...);
@@ -28,23 +28,25 @@ struct token *skip(struct token *tok, char *str);
 struct token *tokenize(char *input);
 
 enum node_kind {
-    ND_ADD,
-    ND_SUB,
-    ND_MUL,
-    ND_DIV,
-    ND_NEG,
-    ND_EQ,
-    ND_NE,
-    ND_LT,
-    ND_LE,
-    ND_NUM
+    ND_ADD,       // +
+    ND_SUB,       // -
+    ND_MUL,       // *
+    ND_DIV,       // /
+    ND_NEG,       // unary -
+    ND_EQ,        // ==
+    ND_NE,        // !=
+    ND_LT,        // <
+    ND_LE,        // <=
+    ND_EXPR_STMT, // expression statement
+    ND_NUM        // integer
 };
 
 struct node {
-    enum node_kind kind;
+    enum node_kind kind; // node kind
+    struct node *next;   // next node
     struct node *lhs;    // left-hand side
     struct node *rhs;    // right-hand side
-    int val;
+    int val;             // used if kind == ND_NUM
 };
 
 struct node *parse(struct token *tok);

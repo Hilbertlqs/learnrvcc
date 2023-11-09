@@ -46,15 +46,15 @@ void error_tok(struct token *tok, char *fmt, ...)
     exit(1);
 }
 
-bool equal(struct token *tok, char *str)
+bool equal(struct token *tok, char *op)
 {
-    return memcmp(tok->loc, str, tok->len) == 0 && str[tok->len] == '\0';
+    return memcmp(tok->loc, op, tok->len) == 0 && op[tok->len] == '\0';
 }
 
-struct token *skip(struct token *tok, char *str)
+struct token *skip(struct token *tok, char *op)
 {
-    if (!equal(tok, str))
-        error_tok(tok, "expect %s", str);
+    if (!equal(tok, op))
+        error_tok(tok, "expect %s", op);
         
     return tok->next;
 }
@@ -117,6 +117,7 @@ struct token *tokenize(char *p)
     }
 
     cur->next = new_token(TK_EOF, p, p);
+    cur = cur->next;
 
     return head.next;
 }
