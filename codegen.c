@@ -16,6 +16,19 @@ static void pop(char *reg)
     depth--;
 }
 
+static void gen_addr(struct node *nd)
+{
+    if (nd->kind == ND_VAR) {
+        int offset = (nd->name - 'a' + 1) * 8;
+
+        printf("    addi a0, fp, %d\n", -offset);
+
+        return;
+    }
+
+    error("not a lvalue");
+}
+
 static void gen_expr(struct node *nd)
 {
     switch (nd->kind) {
@@ -27,6 +40,17 @@ static void gen_expr(struct node *nd)
         // neg rd, rs: sub rd, x0, rs
         gen_expr(nd->lhs);
         printf("    neg a0, a0\n");
+        return;
+    case ND_VAR:
+        gen_addr(nd);
+        printf("    ld a0, 0(a0)\n");
+        return;
+    case ND_ASSIGN:
+        gen_addr(nd->lhs);
+        push();
+        gen_expr(nd->rhs);
+        pop("a1");
+        printf("    sd a0, 0(a1)\n");
         return;
     default:
         break;
@@ -89,10 +113,36 @@ void codegen(struct node *nd)
     printf("    .globl main\n");
     printf("main:\n");
 
+    // stack
+    //-------------------------------// sp
+    //              fp                  fp = sp - 8
+    //-------------------------------// fp
+    //              'a'                 fp - 8
+    //              'b'                 fp - 16
+    //              ...
+    //              'z'                 fp - 208
+    //-------------------------------// sp = sp - 8 - 208
+    //              ...
+    //-------------------------------//
+
+    // prologue
+    printf("    addi sp, sp, -8\n");
+    printf("    sd fp, 0(sp)\n");
+    // mv rd, rs: addi rd, rs, 0
+    printf("    mv fp, sp\n");
+
+    printf("    addi sp, sp, -208\n");
+
     for (struct node *n = nd; n; n = n->next) {
         gen_stmt(n);
         assert(depth == 0);
     }
+
+    // epilogue
+    // mv rd, rs: addi rd, rs, 0
+    printf("    mv sp, fp\n");
+    printf("    ld fp, 0(sp)\n");
+    printf("    addi sp, sp, 8\n");
 
     printf("    ret\n");
 }

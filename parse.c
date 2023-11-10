@@ -2,6 +2,7 @@
 
 static struct node *expr_stmt(struct token **rest, struct token *tok);
 static struct node *expr(struct token **rest, struct token *tok);
+static struct node *assign(struct token **rest, struct token *tok);
 static struct node *equality(struct token **rest, struct token *tok);
 static struct node *relational(struct token **rest, struct token *tok);
 static struct node *add(struct token **rest, struct token *tok);
@@ -46,6 +47,15 @@ static struct node *new_num(int val)
     return nd;
 }
 
+static struct node *new_var_node(char name)
+{
+    struct node *nd = new_node(ND_VAR);
+
+    nd->name = name;
+
+    return nd;
+}
+
 // stmt = expr_stmt
 static struct node *stmt(struct token **rest, struct token *tok)
 {
@@ -62,10 +72,25 @@ static struct node *expr_stmt(struct token **rest, struct token *tok)
     return nd;
 }
 
-// expr = equality
+// expr = assign
 static struct node *expr(struct token **rest, struct token *tok)
 {
-    return equality(rest, tok);
+    return assign(rest, tok);
+}
+
+// assign = equality ("=" assign)?
+static struct node *assign(struct token **rest, struct token *tok)
+{
+    // equality
+    struct node *nd = equality(&tok, tok);
+
+    // ("=" assign)?
+    if (equal(tok, "="))
+        nd = new_binary(ND_ASSIGN, nd, assign(&tok, tok->next));
+
+    *rest = tok;
+
+    return nd;
 }
 
 // equality = relational ("==" relational | "!=" relational)*
@@ -199,7 +224,7 @@ static struct node *unary(struct token **rest, struct token *tok)
     return primary(rest, tok);
 }
 
-// primary = "(" expr ")" | num
+// primary = "(" expr ")" | ident | num
 static struct node *primary(struct token **rest, struct token *tok)
 {
     // "(" expr ")"
@@ -211,6 +236,15 @@ static struct node *primary(struct token **rest, struct token *tok)
         return nd;
     }
 
+    // ident
+    if (tok->kind == TK_IDENT) {
+        struct node *nd = new_var_node(*tok->loc);
+
+        *rest = tok->next;
+
+        return nd;
+    }
+    
     // num
     if (tok->kind == TK_NUM) {
         struct node *nd = new_num(tok->val);
