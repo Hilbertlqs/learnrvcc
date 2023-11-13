@@ -1,5 +1,7 @@
 #include "rvcc.h"
 
+struct obj *locals;
+
 static struct node *expr_stmt(struct token **rest, struct token *tok);
 static struct node *expr(struct token **rest, struct token *tok);
 static struct node *assign(struct token **rest, struct token *tok);
@@ -10,10 +12,19 @@ static struct node *mul(struct token **rest, struct token *tok);
 static struct node *unary(struct token **rest, struct token *tok);
 static struct node *primary(struct token **rest, struct token *tok);
 
+static struct obj *find_var(struct token *tok)
+{
+    for (struct obj *var = locals; var; var = var->next)
+        if (strlen(var->name) == tok->len && 
+            !strncmp(tok->loc, var->name, tok->len))
+            return var;
+
+    return NULL;
+}
+
 static struct node *new_node(enum node_kind kind)
 {
     struct node *nd = calloc(1, sizeof(struct node));
-
     nd->kind = kind;
 
     return nd;
@@ -22,7 +33,6 @@ static struct node *new_node(enum node_kind kind)
 static struct node *new_unary(enum node_kind kind, struct node *expr)
 {
     struct node *nd = new_node(kind);
-
     nd->lhs = expr;
 
     return nd;
@@ -31,29 +41,36 @@ static struct node *new_unary(enum node_kind kind, struct node *expr)
 static struct node *new_binary(enum node_kind kind, struct node *lhs, struct node *rhs)
 {
     struct node *nd = new_node(kind);
-
     nd->lhs = lhs;
     nd->rhs = rhs;
-    
+
     return nd;
 }
 
 static struct node *new_num(int val)
 {
     struct node *nd = new_node(ND_NUM);
-
     nd->val = val;
 
     return nd;
 }
 
-static struct node *new_var_node(char name)
+static struct node *new_var_node(struct obj *var)
 {
     struct node *nd = new_node(ND_VAR);
-
-    nd->name = name;
+    nd->var = var;
 
     return nd;
+}
+
+static struct obj *new_lvar(char *name)
+{
+    struct obj *var = calloc(1, sizeof(struct obj));
+    var->name = name;
+    var->next = locals;
+    locals = var;
+
+    return var;
 }
 
 // stmt = expr_stmt
@@ -66,9 +83,8 @@ static struct node *stmt(struct token **rest, struct token *tok)
 static struct node *expr_stmt(struct token **rest, struct token *tok)
 {
     struct node *nd = new_unary(ND_EXPR_STMT, expr(&tok, tok));
-
     *rest = skip(tok, ";");
-    
+
     return nd;
 }
 
@@ -232,17 +248,19 @@ static struct node *primary(struct token **rest, struct token *tok)
         struct node *nd = expr(&tok, tok->next);
 
         *rest = skip(tok, ")");
-        
+
         return nd;
     }
 
     // ident
     if (tok->kind == TK_IDENT) {
-        struct node *nd = new_var_node(*tok->loc);
+        struct obj *var = find_var(tok);
+        if (!var)
+            var = new_lvar(strndup(tok->loc, tok->len));
 
         *rest = tok->next;
 
-        return nd;
+        return new_var_node(var);
     }
     
     // num
@@ -260,7 +278,7 @@ static struct node *primary(struct token **rest, struct token *tok)
 }
 
 // program = stmt*
-struct node *parse(struct token *tok)
+struct function *parse(struct token *tok)
 {
     struct node head = {};
     struct node *cur = &head;
@@ -270,6 +288,10 @@ struct node *parse(struct token *tok)
         cur->next = stmt(&tok, tok);
         cur = cur->next;
     }
-    
-    return head.next;
+
+    struct function *prog = calloc(1, sizeof(struct function));
+    prog->body = head.next;
+    prog->locals = locals;
+
+    return prog;
 }

@@ -7,9 +7,9 @@ int main(int argc, char *argv[])
 
     struct token *tok = tokenize(argv[1]);
 
-    struct node *nd = parse(tok);
+    struct function *prog = parse(tok);
 
-    codegen(nd);
-    
+    codegen(prog);
+
     return 0;
 }

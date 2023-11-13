@@ -16,13 +16,15 @@ static void pop(char *reg)
     depth--;
 }
 
+static int align_to(int n, int align)
+{
+    return (n + align - 1) / align * align;
+}
+
 static void gen_addr(struct node *nd)
 {
     if (nd->kind == ND_VAR) {
-        int offset = (nd->name - 'a' + 1) * 8;
-
-        printf("    addi a0, fp, %d\n", -offset);
-
+        printf("    addi a0, fp, %d\n", nd->var->offset);
         return;
     }
 
@@ -108,20 +110,29 @@ static void gen_stmt(struct node *nd)
     error("invalid statement");
 }
 
-void codegen(struct node *nd)
+static void assign_lvar_offsets(struct function *prog)
 {
+    int offset = 0;
+    for (struct obj *var = prog->locals; var; var = var->next) {
+        offset += 8;
+        var->offset = -offset;
+    }
+    prog->stack_size = align_to(offset, 16);
+}
+
+void codegen(struct function *prog)
+{
+    assign_lvar_offsets(prog);
+
     printf("    .globl main\n");
     printf("main:\n");
 
     // stack
     //-------------------------------// sp
-    //              fp                  fp = sp - 8
-    //-------------------------------// fp
-    //              'a'                 fp - 8
-    //              'b'                 fp - 16
-    //              ...
-    //              'z'                 fp - 208
-    //-------------------------------// sp = sp - 8 - 208
+    //              fp
+    //-------------------------------// fp = sp - 8
+    //              variables
+    //-------------------------------// sp = sp - 8 - stack_size
     //              ...
     //-------------------------------//
 
@@ -131,9 +142,9 @@ void codegen(struct node *nd)
     // mv rd, rs: addi rd, rs, 0
     printf("    mv fp, sp\n");
 
-    printf("    addi sp, sp, -208\n");
+    printf("    addi sp, sp, -%d\n", prog->stack_size);
 
-    for (struct node *n = nd; n; n = n->next) {
+    for (struct node *n = prog->body; n; n = n->next) {
         gen_stmt(n);
         assert(depth == 0);
     }
